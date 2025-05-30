@@ -1,13 +1,8 @@
-//
-// Created by arielxbp on 5/30/25.
-//
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <errno.h>
-#include <math.h>
 #include <sys/wait.h>
 #include <string.h>
 #include <sys/types.h>
@@ -275,7 +270,7 @@ void* execXOR(void* args) {
             if (key[j]==startP[j+i*64]) {
                 result[resultStart+i*64+j] = '0'; // 128 + i*64 + j
             } else {
-                result[id*numBlocks+i*64+j] = '1';
+                result[resultStart+i*64+j] = '1';
             }
             pthread_mutex_unlock(&lock);
         }
@@ -289,7 +284,6 @@ void* execXOR(void* args) {
         exit(1);
     }
 }
-
 
 char* convertToBinary(char* k) {
 
@@ -308,8 +302,6 @@ char* convertToBinary(char* k) {
     //printf("\nFull binary: %s\n", binary);
     return binary;
 }
-
-
 
 void init_client(char* serverAddr, int portno, char* binaryText, char* key) {
     int sockfd;
@@ -359,6 +351,7 @@ void init_client(char* serverAddr, int portno, char* binaryText, char* key) {
         exit(0);
     }
 
+    // Read the response from the server
     char buffer[256];
     bzero(buffer,256);
     n = read(sockfd,buffer,255);
@@ -367,19 +360,12 @@ void init_client(char* serverAddr, int portno, char* binaryText, char* key) {
         exit(0);
     }
     printf("%s",buffer);
-
+    close(sockfd);
 }
 
 
-    // bzero(buffer,256);
-    // n = read(sockfd,buffer,255);
-    // if (n < 0)
-    //     perror("ERROR reading from socket");
-    //     exit(0);
-    // printf("%s",buffer);
 
-
-// Alternativa per ottenere l'indirizzo IP
+// Alternative way to obtain the IP address
 // if (inet_pton(AF_INET, serverAddr, &serv_addr.sin_addr) <= 0) {
 //     server = gethostbyname(serverAddr);
 //     bcopy((char *)server->h_addr_list[0], (char *)&serv_addr.sin_addr.s_addr, server->h_length);
