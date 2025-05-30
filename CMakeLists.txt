@@ -3,4 +3,5 @@ project(FIleTransfer C)
 
 set(CMAKE_C_STANDARD 99)
 
-add_executable(FIleTransfer server.c)
+add_executable(FIleTransfer server.c
+        client.c)
