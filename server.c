@@ -208,8 +208,6 @@ void readfile(int sockfd, int thread_num, char *string) {
 
     char* resultText = processBinaryText(binaryText, key, thread_num);
     resultText = convertToString(resultText);
-    // Write the result to a file
-    writeFile(resultText, prefix);
 
     // Send a response back to the client
     n = write(sockfd,"SERVER: Correctly received ciphered text\n",41);
@@ -220,6 +218,8 @@ void readfile(int sockfd, int thread_num, char *string) {
     fflush(stdout);
     usleep(100000);
     close(sockfd);
+    // Write the result to a file
+    writeFile(resultText, prefix);
 }
 
 char* processBinaryText(char* binaryText, char* key, int threadCount) {
