@@ -177,7 +177,7 @@ void init_server(int max_threads, char* prefix, int connection_num) {
 
             if (pid == 0) { // fork restituisce 0 al processo figlio
                 close(sockfd); // Chiude il socket del server nel processo figlio
-                if (debug) {
+                if (debug==1) {
                     printf("SERVER (Child %d): Handling connection\n", getpid());
                 }
                 readfile(newsockfd, max_threads, prefix); // Legge il file dal client e lo processa
