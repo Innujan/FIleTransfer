@@ -40,9 +40,35 @@ typedef struct {
 } thread_args;
 
 /**
- * Mutex per la sincronizzazione tra i thread
+ * Mutex per la mutua esclusione tra i thread
  */
 pthread_mutex_t lock;
+
+/**
+ * Set di segnali critici da bloccare durante l'operazione di cifratura
+ */
+static sigset_t criticalOperationSignals;
+
+/**
+ * Flag per verificare se il set di segnali è stato inizializzato
+ */
+static int criticalSignalsInitialized = 0;
+
+/**
+ * Inizializza il set di segnali critici da bloccare durante l'operazione di cifratura
+ */
+void initialize_critical_signals_set() {
+    if (!criticalSignalsInitialized) {
+        sigemptyset(&criticalOperationSignals);
+        sigaddset(&criticalOperationSignals, SIGINT);
+        sigaddset(&criticalOperationSignals, SIGALRM);
+        sigaddset(&criticalOperationSignals, SIGUSR1);
+        sigaddset(&criticalOperationSignals, SIGUSR2);
+        sigaddset(&criticalOperationSignals, SIGTERM);
+        criticalSignalsInitialized = 1;
+    }
+}
+
 
 /**
  * Funzione main del server
@@ -67,7 +93,7 @@ int main(int argc, char *argv[]) {
                 prefix = optarg;
                 break;
             case 'c':
-                // max_connections = atoi(optarg); // atoi non gestisce gli errori -> strtol
+                // max_connections = atoi(optarg); // atoi non gestisce gli errori -> usiamo strtol
                 errno = 0;
                 max_connections = (int)strtol(optarg, NULL, 10); // Casting in quanto strtol restituisce long int
                 if (errno == ERANGE) {
@@ -119,7 +145,7 @@ void init_server(int max_threads, char* prefix, int connection_num) {
         exit(EXIT_FAILURE);
     }
 
-    if (debug){
+    if (debug==1){
         printf("SERVER: Listening on port %d...\n", portno);
     }
 
@@ -139,7 +165,7 @@ void init_server(int max_threads, char* prefix, int connection_num) {
 
             connection_num--;
 
-            if (debug) {
+            if (debug==1) {
                 printf("SERVER: Connection accepted, remaining connections: %d\n", connection_num);
             }
 
@@ -181,7 +207,7 @@ char* convertToString(char* text) {
     int binaryLen = (int)strlen(text); // Casting da long a int
     int charCount = binaryLen / 8; // Ogni carattere è rappresentato da 8 bit
 
-    char* result = malloc(charCount + 1); // +1 for null terminator
+    char* result = (char*)malloc(charCount + 1); // +1 for null terminator
     if (result == NULL) {
         perror("ERROR on memory allocation");
         free(text);
@@ -230,14 +256,11 @@ void writeFile(char* resultText, char* string) {
     if (outputFile == NULL) {
         perror("ERROR: Failed to open output file");
         free(resultText);
-        free(string);
         exit(EXIT_FAILURE);
     }
 
     fprintf(outputFile, "%s", resultText); // Scrive il testo nel file di output
     fclose(outputFile);
-    free(resultText);
-    free(string);
 
     if (debug==1) {
         printf("SERVER: Result written to %s\n", outputFileName);
@@ -254,7 +277,6 @@ void readfile(int sockfd, int thread_num, char *string) {
 
     if (sockfd < 0 || string == NULL) {
         fprintf(stderr, "ERROR: Invalid socket or string\n");
-        free(string);
         exit(EXIT_FAILURE);
     }
 
@@ -267,14 +289,12 @@ void readfile(int sockfd, int thread_num, char *string) {
     read_num = (int)read(sockfd, binaryTextLenStr, sizeof(binaryTextLenStr));
     if (read_num == -1) {
         perror("ERROR reading from socket");
-        free(string);
         exit(EXIT_FAILURE);
     }
     errno = 0; // Resetta errno prima di usare strtol
     int binaryTextLen = (int)strtol(binaryTextLenStr, NULL, 10);
     if (errno == ERANGE) {
         perror("strtol");
-        free(string);
         exit(EXIT_FAILURE);
     }
 
@@ -284,7 +304,6 @@ void readfile(int sockfd, int thread_num, char *string) {
     read_num = (int)read(sockfd, binaryText, sizeof(binaryText));
     if (read_num == -1) {
         perror("ERROR reading from socket");
-        free(string);
         exit(EXIT_FAILURE);
     }
     binaryText[read_num] = '\0'; // Null-termino
@@ -294,12 +313,10 @@ void readfile(int sockfd, int thread_num, char *string) {
     read_num = (int)read(sockfd, key, sizeof(key));
     if (read_num == -1) {
         perror("ERROR reading from socket");
-        free(string);
         exit(EXIT_FAILURE);
     }
     if (read_num != 64) {
         fprintf(stderr, "ERROR: Key must be exactly 64 characters long\n");
-        free(string);
         exit(EXIT_FAILURE);
     }
     key[read_num] = '\0'; // Null-termino
@@ -311,23 +328,78 @@ void readfile(int sockfd, int thread_num, char *string) {
         printf("SERVER (Child %d): The key is: %s\n", pid, key);
     }
 
+    // Salva il vecchio set di segnali per poterlo ripristinare dopo l'operazione di decifratura e di scrittura su file
+    sigset_t old_mask_cipher;
+
+    if (debug==1) {
+        printf("SERVER: Blocking signals before deciphering process\n");
+    }
+
+    // Cambia il set di segnali per bloccare i segnali critici interessati durante l'operazione di decifratura e di scrittura su file
+    if (sigprocmask(SIG_BLOCK, &criticalOperationSignals, &old_mask_cipher) == -1) {
+        perror("SERVER: ERROR sigprocmask");
+        exit(EXIT_FAILURE);
+    }
+
     // Processo il testo binario con la chiave
     char* resultText = processBinaryText(binaryText, key, thread_num);
     resultText = convertToString(resultText); // Converte il testo binario processato in stringa
+
+    if (debug==1) {
+        printf("SERVER: Restoring signals after deciphering text\n");
+    }
+
+    // Ripristina il set di segnali precedente al blocco
+    if (sigprocmask(SIG_SETMASK, &old_mask_cipher, NULL) == -1) {
+        perror("SERVER: ERROR sigprocmask");
+        free(resultText);
+        exit(EXIT_FAILURE);
+    }
+
+    if (debug==1) {
+        printf("SERVER: Restored signals\n");
+    }
 
     // Manda una risposta al client se arrivato a questo punto correttamente
     read_num = (int)write(sockfd, "SERVER: Correctly received ciphered text\n", 41); // 41 è la lunghezza della stringa da mandare
     if (read_num == -1) {
         perror("ERROR writing to socket");
-        free(string);
         free(resultText);
         exit(EXIT_FAILURE);
     }
     fflush(stdout); // Forza la scrittura su stdout
     usleep(100000); // Attende 100 millisecondi per assicurarsi che il client riceva il messaggio
     close(sockfd); // Chiude il socket dopo aver inviato la risposta
+
+    if (debug==1) {
+        printf("SERVER: Blocking signals before writing to file\n");
+    }
+
+    // Cambia il set di segnali per bloccare i segnali critici interessati durante l'operazione di decifratura e di scrittura su file
+    if (sigprocmask(SIG_BLOCK, &criticalOperationSignals, &old_mask_cipher) == -1) {
+        perror("SERVER: ERROR sigprocmask");
+        exit(EXIT_FAILURE);
+    }
+
     // Scrive il risultato in un file
     writeFile(resultText, prefix);
+
+    if (debug==1) {
+        printf("SERVER: Restoring signals after writing to file\n");
+    }
+
+    // Ripristina il set di segnali precedente al blocco
+    if (sigprocmask(SIG_SETMASK, &old_mask_cipher, NULL) == -1) {
+        perror("SERVER: ERROR sigprocmask");
+        free(resultText);
+        exit(EXIT_FAILURE);
+    }
+
+    if (debug==1) {
+        printf("SERVER: Restored signals\n");
+    }
+
+    free(resultText);
 }
 
 /**
@@ -349,7 +421,7 @@ char* processBinaryText(char* binaryText, char* key, int threadCount) {
     }
 
     // Alloca memoria per gestire i thread e i loro argomenti
-    pthread_t *threads = malloc(threadCount * sizeof(pthread_t)); // Array di identificatori dei thread
+    pthread_t *threads = (pthread_t *)malloc(threadCount * sizeof(pthread_t)); // Array di thread
     thread_args **args_array = malloc(threadCount * sizeof(thread_args*)); // Array di puntatori a strutture thread_args che contengono gli argomenti per ogni thread
     if (!threads || !args_array) {
         perror("SERVER: Failed to allocate memory for thread management structures");
@@ -382,7 +454,7 @@ char* processBinaryText(char* binaryText, char* key, int threadCount) {
 
     for (int i = 0; i < threadCount; i++) {
 
-        args_array[i] = malloc(sizeof(thread_args)); // Alloca memoria per la struttura thread_args per il thread i-esimo
+        args_array[i] = (thread_args*)malloc(sizeof(thread_args)); // Alloca memoria per la struttura thread_args per il thread i-esimo
         if (!args_array[i]) {
             perror("SERVER: Malloc failed for thread_args");
             exit(EXIT_FAILURE);
@@ -508,12 +580,12 @@ char* processBinaryText(char* binaryText, char* key, int threadCount) {
  * @param args: puntatore alla struttura thread_args contenente gli argomenti del thread i-esimo
  */
 void* execXOR(void* args) {
-    thread_args *t_args = (thread_args *)args;
+    thread_args *t_args = (thread_args *)args; // Cast del puntatore args a thread_args
     char* key = t_args->key; // Chiave di cifratura
     char* startP = t_args->startP; // Puntatore all'inizio relativo del testo binario per questo thread
 
     /*
-     * Sincronizza l'accesso alla lista concatenata dei blocchi
+     * Utilizzo del mutex per garantire la mutua esclusione alla risorsa
      */
     pthread_mutex_lock(&lock);
     BlockNode* currentResultNode = t_args->result;
