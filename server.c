@@ -527,9 +527,9 @@ void* execXOR(void* args) {
         for (int j = 0; j < 64; j++) {
             if (key[j % keyLen] == startP[i * 64 + j]) {
                 pthread_mutex_lock(&lock);
-                currentResultNode->block[j] = '0';
+                currentResultNode->block[j] = '0'; // 0 e 0 => 0, 1 e 1 => 0
             } else {
-                currentResultNode->block[j] = '1';
+                currentResultNode->block[j] = '1'; // 0 e 1 => 1, 1 e 0 => 1
             }
             pthread_mutex_unlock(&lock);
         }
