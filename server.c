@@ -103,6 +103,7 @@ int main(int argc, char *argv[]) {
                 break;
             default:
                 perror("missing arguments");
+                exit(EXIT_FAILURE);
         }
     }
 
