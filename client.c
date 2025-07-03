@@ -193,9 +193,9 @@ char* readFile(char* filename) {
     }
 
     // Per ottenere la lunghezza del file
-    fseek(fp, 0, SEEK_END);
-    fileLen = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
+    fseek(fp, 0, SEEK_END); // Muovi il puntatore del file alla fine del file per il ftell
+    fileLen = ftell(fp); // ftell restituisce la posizione corrente del puntatore del file in bytes
+    fseek(fp, 0, SEEK_SET); // Rimetti il puntatore del file alla posizione iniziale
 
     // Alloca memoria per il buffer
     buf = (char *)malloc(fileLen + 1); // 8 bits per byte + null terminator
